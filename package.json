@@ -1,0 +1,88 @@
+{
+  "name": "waxly",
+  "version": "1.0.0",
+  "description": "Waxly - Desktop Application",
+  "main": "dist/main.js",
+  "homepage": "./",
+  "scripts": {
+    "start": "npm run build:electron && concurrently \"cross-env BROWSER=none npm run start:react\" \"wait-on http://localhost:3000 && npm run start:electron\"",
+    "start:react": "react-scripts start",
+    "start:electron": "cross-env NODE_ENV=development electron .",
+    "build": "npm run build:react && npm run build:electron",
+    "build:react": "react-scripts build",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "package": "npm run build && electron-builder build --mac --win --linux",
+    "package:mac": "npm run build && electron-builder build --mac",
+    "package:win": "npm run build && electron-builder build --win",
+    "package:linux": "npm run build && electron-builder build --linux",
+    "test": "react-scripts test"
+  },
+  "keywords": [
+    "electron",
+    "react",
+    "typescript"
+  ],
+  "author": "",
+  "license": "ISC",
+  "build": {
+    "appId": "com.waxly.app",
+    "productName": "Waxly",
+    "files": [
+      "dist/**/*",
+      "build/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "buildResources": "assets",
+      "output": "release"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "assets/icon.icns"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "assets/icon.png"
+    }
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.7.2",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^38.2.2",
+    "electron-builder": "^26.0.12",
+    "electron-reload": "^2.0.0-alpha.1",
+    "ts-loader": "^9.5.4",
+    "typescript": "^5.9.3",
+    "wait-on": "^9.0.1",
+    "webpack": "^5.102.1",
+    "webpack-cli": "^6.0.1"
+  },
+  "dependencies": {
+    "@babel/preset-react": "^7.27.1",
+    "@babel/preset-typescript": "^7.27.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-scripts": "^5.0.1"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}
