@@ -26,6 +26,75 @@ interface DiscogsRelease {
   };
 }
 
+interface DiscogsReleaseDetail {
+  id: number;
+  title: string;
+  year: number;
+  released: string;
+  released_formatted: string;
+  country: string;
+  artists: Array<{
+    name: string;
+    id: number;
+    anv?: string;
+    join?: string;
+    role?: string;
+    tracks?: string;
+  }>;
+  artists_sort: string;
+  labels: Array<{
+    name: string;
+    catno: string;
+    entity_type: string;
+    id: number;
+  }>;
+  formats: Array<{
+    name: string;
+    qty: string;
+    descriptions?: string[];
+    text?: string;
+  }>;
+  genres: string[];
+  styles: string[];
+  tracklist: Array<{
+    position: string;
+    type_: string;
+    title: string;
+    duration: string;
+    artists?: Array<{
+      name: string;
+      id: number;
+    }>;
+  }>;
+  extraartists?: Array<{
+    name: string;
+    id: number;
+    role: string;
+    anv?: string;
+  }>;
+  images: Array<{
+    type: string;
+    uri: string;
+    uri150: string;
+    width: number;
+    height: number;
+  }>;
+  thumb: string;
+  notes?: string;
+  data_quality: string;
+  master_id?: number;
+  master_url?: string;
+  uri: string;
+  resource_url: string;
+  estimated_weight?: number;
+  videos?: Array<{
+    uri: string;
+    title: string;
+    description: string;
+    duration: number;
+  }>;
+}
+
 interface DiscogsResponse {
   pagination: {
     page: number;
@@ -42,6 +111,28 @@ const App: React.FC = () => {
   const [totalItems, setTotalItems] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [selectedReleaseDetail, setSelectedReleaseDetail] = useState<DiscogsReleaseDetail | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+
+  const fetchReleaseDetail = async (releaseId: number) => {
+    setLoadingDetail(true);
+    try {
+      const response = await axios.get<DiscogsReleaseDetail>(
+        `https://api.discogs.com/releases/${releaseId}`,
+        {
+          /*headers: {
+            'User-Agent': 'Waxly/1.0',
+          },*/
+        }
+      );
+      setSelectedReleaseDetail(response.data);
+    } catch (err: any) {
+      console.error('Error fetching release details:', err);
+      setError('Failed to fetch release details');
+    } finally {
+      setLoadingDetail(false);
+    }
+  };
 
   const fetchCollection = async () => {
     if (!username.trim()) {
@@ -72,13 +163,11 @@ const App: React.FC = () => {
               sort: 'artist',
               sort_order: 'asc',
             },
-            headers: {
+            /*headers: {
               'User-Agent': 'Waxly/1.0',
-            },
+            },*/
           }
         );
-
-        console.log(response.data.releases);
 
         allReleases = [...allReleases, ...response.data.releases];
         totalItems = response.data.pagination.items;
@@ -143,7 +232,11 @@ const App: React.FC = () => {
             </h2>
             <div className="releases-grid">
               {releases.map((release) => (
-                <div key={release.instance_id} className="release-card">
+                <div
+                  key={release.instance_id}
+                  className="release-card"
+                  onClick={() => fetchReleaseDetail(release.id)}
+                >
                   <img
                     src={release.basic_information.thumb}
                     alt={release.basic_information.title}
@@ -171,6 +264,233 @@ const App: React.FC = () => {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {selectedReleaseDetail && (
+          <div className="modal-overlay" onClick={() => setSelectedReleaseDetail(null)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <button className="modal-close" onClick={() => setSelectedReleaseDetail(null)}>
+                ×
+              </button>
+
+              {loadingDetail ? (
+                <div className="detail-loading">Loading details...</div>
+              ) : (
+                <div className="detail-container">
+                  <div className="detail-header">
+                    {selectedReleaseDetail.images && selectedReleaseDetail.images.length > 0 && (
+                      <img
+                        src={selectedReleaseDetail.images[0].uri}
+                        alt={selectedReleaseDetail.title}
+                        className="detail-image"
+                      />
+                    )}
+                    <div className="detail-main-info">
+                      <h2 className="detail-title">{selectedReleaseDetail.title}</h2>
+                      <p className="detail-artist">
+                        {selectedReleaseDetail.artists.map((artist) => artist.name).join(', ')}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="detail-sections">
+                    {selectedReleaseDetail.tracklist && selectedReleaseDetail.tracklist.length > 0 && (
+                      <div className="detail-section">
+                        <h3>Tracklist</h3>
+                        <div className="tracklist">
+                          {selectedReleaseDetail.tracklist.map((track, idx) => (
+                            <div key={idx} className="track-item">
+                              <span className="track-position">{track.position}</span>
+                              <div className="track-info">
+                                <span className="track-title">{track.title}</span>
+                                {track.duration && <span className="track-duration">{track.duration}</span>}
+                                {track.artists && track.artists.length > 0 && (
+                                  <span className="track-artists">
+                                    {track.artists.map((a) => a.name).join(', ')}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="detail-section">
+                      <h3>Release Information</h3>
+                      <div className="detail-info-grid">
+                        <div className="info-item">
+                          <span className="info-label">Year:</span>
+                          <span className="info-value">{selectedReleaseDetail.year || 'Unknown'}</span>
+                        </div>
+                        {selectedReleaseDetail.released_formatted && (
+                          <div className="info-item">
+                            <span className="info-label">Released:</span>
+                            <span className="info-value">{selectedReleaseDetail.released_formatted}</span>
+                          </div>
+                        )}
+                        <div className="info-item">
+                          <span className="info-label">Country:</span>
+                          <span className="info-value">{selectedReleaseDetail.country || 'Unknown'}</span>
+                        </div>
+                        <div className="info-item">
+                          <span className="info-label">Release ID:</span>
+                          <span className="info-value">{selectedReleaseDetail.id}</span>
+                        </div>
+                        {selectedReleaseDetail.master_id && (
+                          <div className="info-item">
+                            <span className="info-label">Master ID:</span>
+                            <span className="info-value">{selectedReleaseDetail.master_id}</span>
+                          </div>
+                        )}
+                        {selectedReleaseDetail.data_quality && (
+                          <div className="info-item">
+                            <span className="info-label">Data Quality:</span>
+                            <span className="info-value">{selectedReleaseDetail.data_quality}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {selectedReleaseDetail.formats && selectedReleaseDetail.formats.length > 0 && (
+                      <div className="detail-section">
+                        <h3>Format</h3>
+                        {selectedReleaseDetail.formats.map((format, idx) => (
+                          <div key={idx} className="format-item">
+                            <div className="info-item">
+                              <span className="info-label">Type:</span>
+                              <span className="info-value">
+                                {format.name} {format.qty && `(${format.qty})`}
+                              </span>
+                            </div>
+                            {format.descriptions && format.descriptions.length > 0 && (
+                              <div className="info-item">
+                                <span className="info-label">Details:</span>
+                                <span className="info-value">{format.descriptions.join(', ')}</span>
+                              </div>
+                            )}
+                            {format.text && (
+                              <div className="info-item">
+                                <span className="info-label">Text:</span>
+                                <span className="info-value">{format.text}</span>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {selectedReleaseDetail.labels && selectedReleaseDetail.labels.length > 0 && (
+                      <div className="detail-section">
+                        <h3>Label & Catalog</h3>
+                        {selectedReleaseDetail.labels.map((label, idx) => (
+                          <div key={idx} className="info-item">
+                            <span className="info-label">{label.name}:</span>
+                            <span className="info-value">{label.catno}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {selectedReleaseDetail.extraartists && selectedReleaseDetail.extraartists.length > 0 && (
+                      <div className="detail-section">
+                        <h3>Credits</h3>
+                        <div className="credits-list">
+                          {selectedReleaseDetail.extraartists.map((artist, idx) => (
+                            <div key={idx} className="credit-item">
+                              <span className="credit-name">{artist.name}</span>
+                              <span className="credit-role">{artist.role}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedReleaseDetail.genres && selectedReleaseDetail.genres.length > 0 && (
+                      <div className="detail-section">
+                        <h3>Genres</h3>
+                        <div className="tags">
+                          {selectedReleaseDetail.genres.map((genre, idx) => (
+                            <span key={idx} className="tag">
+                              {genre}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedReleaseDetail.styles && selectedReleaseDetail.styles.length > 0 && (
+                      <div className="detail-section">
+                        <h3>Styles</h3>
+                        <div className="tags">
+                          {selectedReleaseDetail.styles.map((style, idx) => (
+                            <span key={idx} className="tag tag-secondary">
+                              {style}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedReleaseDetail.notes && (
+                      <div className="detail-section">
+                        <h3>Notes</h3>
+                        <div className="note-item">{selectedReleaseDetail.notes}</div>
+                      </div>
+                    )}
+
+                    {selectedReleaseDetail.videos && selectedReleaseDetail.videos.length > 0 && (
+                      <div className="detail-section">
+                        <h3>Videos</h3>
+                        <div className="videos-list">
+                          {selectedReleaseDetail.videos.map((video, idx) => (
+                            <a
+                              key={idx}
+                              href={video.uri}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="video-link"
+                            >
+                              <span className="video-title">{video.title}</span>
+                              {video.duration && (
+                                <span className="video-duration">
+                                  {Math.floor(video.duration / 60)}:{String(video.duration % 60).padStart(2, '0')}
+                                </span>
+                              )}
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="detail-section">
+                      <h3>Links</h3>
+                      <div className="detail-links">
+                        <a
+                          href={`https://www.discogs.com/release/${selectedReleaseDetail.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="detail-link"
+                        >
+                          View on Discogs →
+                        </a>
+                        {selectedReleaseDetail.master_id && (
+                          <a
+                            href={`https://www.discogs.com/master/${selectedReleaseDetail.master_id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="detail-link"
+                          >
+                            View Master Release →
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
