@@ -3,8 +3,14 @@ import axios from 'axios';
 import './App.css';
 
 // Maximum number of releases to fetch initially (can be more than 100, will make multiple API calls)
-const INITIAL_FETCH_LIMIT = 200;
+// const INITIAL_FETCH_LIMIT = 200;
+// AVOID OVERLOAD SPOTIFY API
+const INITIAL_FETCH_LIMIT = 10;
 const API_MAX_PER_PAGE = 100; // Discogs API maximum per page
+
+// Spotify API configuration
+const SPOTIFY_CLIENT_ID = process.env.REACT_APP_SPOTIFY_CLIENT_ID || '';
+const SPOTIFY_CLIENT_SECRET = process.env.REACT_APP_SPOTIFY_CLIENT_SECRET || '';
 
 interface DiscogsRelease {
   id: number;
@@ -24,6 +30,7 @@ interface DiscogsRelease {
     thumb: string;
     cover_image: string;
   };
+  spotifyMatch?: SpotifyAlbum; // Add optional Spotify match
 }
 
 interface DiscogsReleaseDetail {
@@ -105,6 +112,32 @@ interface DiscogsResponse {
   releases: DiscogsRelease[];
 }
 
+interface SpotifyAlbum {
+  id: string;
+  name: string;
+  artists: Array<{
+    name: string;
+    id: string;
+  }>;
+  images: Array<{
+    url: string;
+    height: number;
+    width: number;
+  }>;
+  release_date: string;
+  total_tracks: number;
+  external_urls: {
+    spotify: string;
+  };
+  uri: string;
+}
+
+interface SpotifySearchResponse {
+  albums: {
+    items: SpotifyAlbum[];
+  };
+}
+
 const App: React.FC = () => {
   const [username, setUsername] = useState('');
   const [releases, setReleases] = useState<DiscogsRelease[]>([]);
@@ -113,10 +146,78 @@ const App: React.FC = () => {
   const [error, setError] = useState('');
   const [selectedReleaseDetail, setSelectedReleaseDetail] = useState<DiscogsReleaseDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [spotifyAlbum, setSpotifyAlbum] = useState<SpotifyAlbum | null>(null);
+  const [spotifyToken, setSpotifyToken] = useState<string>('');
+
+  const getSpotifyToken = async (): Promise<string> => {
+    if (spotifyToken) return spotifyToken;
+
+    try {
+      const response = await axios.post(
+        'https://accounts.spotify.com/api/token',
+        'grant_type=client_credentials',
+        {
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            Authorization: `Basic ${btoa(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`)}`,
+          },
+        }
+      );
+      const token = response.data.access_token;
+      setSpotifyToken(token);
+      return token;
+    } catch (err) {
+      console.error('Error getting Spotify token:', err);
+      throw err;
+    }
+  };
+
+  const searchSpotifyAlbum = async (artist: string, albumTitle: string, year?: number) => {
+    try {
+      const token = await getSpotifyToken();
+
+      // Build search query: artist + album title
+      // const query = `artist:${artist} album:${albumTitle}${year ? ` year:${year}` : ''}`;
+      const query = `artist:${artist} album:${albumTitle}`;
+      // const query = `artist:Pac album:All Eyez On Me`;
+
+      const response = await axios.get<SpotifySearchResponse>(
+        'https://api.spotify.com/v1/search',
+        {
+          params: {
+            q: query,
+            type: 'album',
+            limit: 5,
+          },
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      // Return the first match if available
+      if (response.data.albums.items.length > 0) {
+        console.log(response.data.albums.items[0]);
+        return response.data.albums.items[0];
+      }
+      return null;
+    } catch (err) {
+      console.error('Error searching Spotify:', err);
+      return null;
+    }
+  };
 
   const fetchReleaseDetail = async (releaseId: number) => {
     setLoadingDetail(true);
+    setSpotifyAlbum(null); // Reset Spotify album
+
     try {
+      // Check if we already have a Spotify match for this release
+      const existingRelease = releases.find(r => r.id === releaseId);
+      if (existingRelease?.spotifyMatch) {
+        setSpotifyAlbum(existingRelease.spotifyMatch);
+      }
+
       const response = await axios.get<DiscogsReleaseDetail>(
         `https://api.discogs.com/releases/${releaseId}`,
         {
@@ -126,6 +227,18 @@ const App: React.FC = () => {
         }
       );
       setSelectedReleaseDetail(response.data);
+
+      // Only search for Spotify match if we don't already have one
+      if (!existingRelease?.spotifyMatch && response.data.artists.length > 0) {
+        const artistName = response.data.artists[0].name;
+        const albumTitle = response.data.title;
+        const year = response.data.year;
+
+        const spotifyMatch = await searchSpotifyAlbum(artistName, albumTitle, year);
+        if (spotifyMatch) {
+          setSpotifyAlbum(spotifyMatch);
+        }
+      }
     } catch (err: any) {
       console.error('Error fetching release details:', err);
       setError('Failed to fetch release details');
@@ -189,6 +302,9 @@ const App: React.FC = () => {
 
       setReleases(limitedReleases);
       setTotalItems(totalItems);
+
+      // Fetch Spotify matches for all releases in the background
+      fetchSpotifyMatchesForReleases(limitedReleases);
     } catch (err: any) {
       if (err.response?.status === 404) {
         setError('User not found');
@@ -200,6 +316,39 @@ const App: React.FC = () => {
       console.error('Error fetching collection:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchSpotifyMatchesForReleases = async (releases: DiscogsRelease[]) => {
+    // Fetch Spotify matches in batches to avoid overwhelming the API
+    for (let i = 0; i < releases.length; i++) {
+      const release = releases[i];
+      const artistName = release.basic_information.artists[0]?.name;
+      const albumTitle = release.basic_information.title;
+      const year = release.basic_information.year;
+
+      if (artistName && albumTitle) {
+        try {
+          const spotifyMatch = await searchSpotifyAlbum(artistName, albumTitle, year);
+          if (spotifyMatch) {
+            // Update the release with Spotify match
+            setReleases((prevReleases) =>
+              prevReleases.map((r) =>
+                r.instance_id === release.instance_id
+                  ? { ...r, spotifyMatch }
+                  : r
+              )
+            );
+          }
+        } catch (err) {
+          console.error(`Error fetching Spotify match for ${albumTitle}:`, err);
+        }
+
+        // Add a small delay between requests to avoid rate limiting
+        if (i < releases.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+      }
     }
   };
 
@@ -260,6 +409,11 @@ const App: React.FC = () => {
                           {release.basic_information.formats[0].name}
                         </span>
                       )}
+                      {release.spotifyMatch && (
+                        <span className="release-spotify-badge" title="Available on Spotify">
+                          🎵 Spotify
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -314,6 +468,50 @@ const App: React.FC = () => {
                               </div>
                             </div>
                           ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {spotifyAlbum && (
+                      <div className="detail-section spotify-section">
+                        <h3>🎵 Spotify Match Found</h3>
+                        <div className="spotify-album">
+                          <div className="spotify-album-header">
+                            {spotifyAlbum.images.length > 0 && (
+                              <img
+                                src={spotifyAlbum.images[0].url}
+                                alt={spotifyAlbum.name}
+                                className="spotify-album-image"
+                              />
+                            )}
+                            <div className="spotify-album-info">
+                              <h4 className="spotify-album-title">{spotifyAlbum.name}</h4>
+                              <p className="spotify-album-artist">
+                                {spotifyAlbum.artists.map((a) => a.name).join(', ')}
+                              </p>
+                              <div className="spotify-album-meta">
+                                <span>{spotifyAlbum.release_date}</span>
+                                <span>•</span>
+                                <span>{spotifyAlbum.total_tracks} tracks</span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="spotify-actions">
+                            <a
+                              href={spotifyAlbum.external_urls.spotify}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="spotify-link"
+                            >
+                              Open in Spotify →
+                            </a>
+                            <button
+                              className="spotify-play-button"
+                              onClick={() => window.open(spotifyAlbum.uri, '_blank')}
+                            >
+                              ▶ Play on Spotify
+                            </button>
+                          </div>
                         </div>
                       </div>
                     )}
